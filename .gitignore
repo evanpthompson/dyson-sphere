@@ -1,3 +1,125 @@
+# ---- Build output ----
 bin/
+dist/
+build/
+/server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build/module caches if anyone vendors or caches locally
+vendor/
+/go.work
+/go.work.sum
+
+# ---- Test & coverage ----
+*.test
 *.out
+coverage.*
+cover.html
+profile.cov
+/testdata/tmp/
+
+# ---- Profiling ----
+*.prof
+*.pprof
+cpu.out
+mem.out
+block.out
+mutex.out
+trace.out
+
+# ---- Secrets & local config ----
+# Nothing credential-shaped is ever committed. The verify gate in Session 6
+# enforces this; this list is the first line, not the only one.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+*.token
+credentials.json
+service-account*.json
+kubeconfig
+*.kubeconfig
+.netrc
+.npmrc
+
+# ---- Helm / Kubernetes (Sessions 3-4) ----
+# Chart deps are resolved at build time, not committed.
+charts/**/charts/
+charts/**/Chart.lock
+*.tgz
+# Rendered manifests are output, not source. The Argo CD Application manifest
+# that lives in consu-config IS committed -- it is not covered by this.
+/rendered/
+/manifests/rendered/
+
+# ---- Terraform (if any infra lands in this repo) ----
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# ---- Docker (Session 2) ----
+.docker/
+docker-compose.override.yml
+
+# ---- Tooling caches ----
+.golangci-lint-cache/
+.cache/
+tmp/
+.tmp/
+*.log
+!CHANGELOG.log
+
+# ---- Editors & IDEs ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+*~
+.\#*
+\#*\#
+.projectile
+nvim.log
+
+# ---- AI / agent tooling scratch ----
+.claude/
+.aider*
+.cursorignore
+CLAUDE.local.md
+
+# ---- OS cruft ----
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+ehthumbs.db
+Thumbs.db
+desktop.ini

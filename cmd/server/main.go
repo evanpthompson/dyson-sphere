@@ -1,5 +1,5 @@
 // Command server is the reference service the dyson-sphere generator will emit.
-// Build it by hand first; teach the generator to produce it in Session 5.
+// Built by hand first, on purpose: you cannot generate what you have not built.
 package main
 
 import (
@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"gitlab.com/navetoocool/dyson-sphere/internal/build"
+	"gitlab.com/navetoocool/dyson-sphere/internal/observability"
 	"gitlab.com/navetoocool/dyson-sphere/internal/server"
 )
 
@@ -21,12 +23,17 @@ const (
 	readTimeout     = 5 * time.Second
 	writeTimeout    = 10 * time.Second
 	idleTimeout     = 60 * time.Second
+	// Flushing traces gets its own budget. Spans buffered in the batch
+	// processor are lost if the process exits before they are exported, and
+	// losing the telemetry for the shutdown is losing it exactly when you
+	// most want it.
+	traceFlushTimeout = 5 * time.Second
 )
 
 func main() {
-	// main() does nothing but call run() and translate an error into an exit
-	// code. Keeping the logic in run() means it returns errors normally instead
-	// of calling os.Exit, which skips deferred cleanup.
+	// main() does nothing but call run() and turn an error into an exit code.
+	// Keeping the logic in run() lets it return errors normally instead of
+	// calling os.Exit, which skips every deferred cleanup.
 	if err := run(); err != nil {
 		slog.Error("fatal", slog.String("err", err.Error()))
 		os.Exit(1)
@@ -39,17 +46,42 @@ func run() error {
 	}))
 	slog.SetDefault(log)
 
-	// signal.NotifyContext gives a context cancelled on SIGINT/SIGTERM. This
-	// replaces the old pattern of a signal channel plus a select loop.
+	// signal.NotifyContext gives a context cancelled on SIGINT/SIGTERM,
+	// replacing the older signal-channel-and-select pattern.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	log.Info("starting",
+		slog.String("service", build.ServiceName),
+		slog.String("version", build.Version),
+		slog.String("commit", build.Commit),
+	)
+
+	// Tracing is initialised before anything can serve, so no request is ever
+	// handled by a process that cannot report on it.
+	shutdownTracing, err := observability.InitTracing(ctx)
+	if err != nil {
+		// A telemetry backend being unreachable must not stop the service from
+		// serving traffic. Degrade by observing less, never by refusing to run.
+		log.Warn("tracing disabled", slog.String("err", err.Error()))
+		shutdownTracing = func(context.Context) error { return nil }
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), traceFlushTimeout)
+		defer cancel()
+		if err := shutdownTracing(flushCtx); err != nil {
+			log.Warn("trace flush failed", slog.String("err", err.Error()))
+		}
+	}()
+
+	metrics := observability.NewMetrics()
 
 	addr := defaultAddr
 	if v := os.Getenv("ADDR"); v != "" {
 		addr = v
 	}
 
-	app := server.New(log)
+	app := server.New(log, metrics)
 
 	// Always set timeouts explicitly. http.ListenAndServe has none, so one slow
 	// client can hold a connection open indefinitely.
@@ -61,13 +93,13 @@ func run() error {
 		IdleTimeout:  idleTimeout,
 	}
 
-	// Serve on its own goroutine so main can wait on ctx. A buffered channel of
-	// size 1 means this goroutine never blocks on send even if nobody reads.
+	// Serve on its own goroutine so main can wait on ctx. The channel is
+	// buffered so this goroutine never blocks on send even if nobody reads.
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("listening", slog.String("addr", addr))
-		// ErrServerClosed is what Shutdown causes. It is a normal stop, not a
-		// failure, so it is filtered out here rather than at the read site.
+		// ErrServerClosed is what Shutdown causes. That is a normal stop, so it
+		// is filtered here rather than at the read site.
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
@@ -75,7 +107,7 @@ func run() error {
 		errCh <- nil
 	}()
 
-	// Real services would announce readiness after dependencies connect.
+	// A real service announces readiness once its dependencies connect.
 	app.MarkReady()
 	log.Info("ready")
 

@@ -1,13 +1,19 @@
-BINARY := server
-PKG    := ./...
+BINARY  := server
+PKG     := ./...
+IMAGE   := dyson-sphere/service
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS := -s -w \
+	-X gitlab.com/navetoocool/dyson-sphere/internal/build.Version=$(VERSION) \
+	-X gitlab.com/navetoocool/dyson-sphere/internal/build.Commit=$(COMMIT)
 
-.PHONY: run build test lint tidy clean
+.PHONY: run build test lint tidy clean docker-build docker-run
 
 run:
-	go run ./cmd/server
+	go run -ldflags="$(LDFLAGS)" ./cmd/server
 
 build:
-	go build -o bin/$(BINARY) ./cmd/server
+	go build -trimpath -ldflags="$(LDFLAGS)" -o bin/$(BINARY) ./cmd/server
 
 test:
 	go test -race -cover $(PKG)
@@ -23,3 +29,15 @@ tidy:
 
 clean:
 	rm -rf bin
+
+docker-build:
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		-t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
+
+docker-run: docker-build
+	docker run --rm -p 8080:8080 \
+		-e OTEL_EXPORTER_OTLP_ENDPOINT=$(OTEL_EXPORTER_OTLP_ENDPOINT) \
+		-e OTEL_SERVICE_NAME=dyson-sphere-service \
+		$(IMAGE):$(VERSION)

@@ -1,7 +1,9 @@
 # ---- Build output ----
-bin/
-dist/
-build/
+# Leading slashes matter. An unanchored `build/` also matches internal/build/,
+# which silently kept that package out of the repo until CI could not compile.
+/bin/
+/dist/
+/build/
 /server
 *.exe
 *.exe~
@@ -10,7 +12,7 @@ build/
 *.dylib
 
 # Go build/module caches if anyone vendors or caches locally
-vendor/
+/vendor/
 /go.work
 /go.work.sum
 
@@ -85,9 +87,9 @@ docker-compose.override.yml
 
 # ---- Tooling caches ----
 .golangci-lint-cache/
-.cache/
-tmp/
-.tmp/
+/.cache/
+/tmp/
+/.tmp/
 *.log
 !CHANGELOG.log
 

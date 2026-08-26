@@ -148,4 +148,11 @@ push mirror kept in sync for readability. Read it here; it is built there.
 
 ---
 
+## License
+
+MIT — see `LICENSE`. Go dependencies keep their own licences; none are
+vendored here, so nothing in this tree is covered by it but this code.
+
+---
+
 Built by [Evan Thompson](https://github.com/evanpthompson).

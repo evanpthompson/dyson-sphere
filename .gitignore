@@ -123,3 +123,9 @@ CLAUDE.local.md
 ehthumbs.db
 Thumbs.db
 desktop.ini
+
+.env
+
+# Local agent permissions — machine-specific, may contain host paths
+.claude/settings.local.json
+.claude/settings.local.json.bak-*

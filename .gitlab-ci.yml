@@ -1,0 +1,115 @@
+# dyson-sphere service pipeline
+#
+# Follows the split described in consu/docs/09-application-delivery.md: a
+# service pipeline builds, tests and publishes one service across no
+# environments. It must never learn a hostname, a namespace or a cluster
+# credential. Resolving what actually runs where is the environment pipeline's
+# job, in consu-config.
+#
+# test -> build+push image -> scan -> propose a pin bump to consu-config
+
+stages:
+  - test
+  - build
+  - scan
+  - propose
+
+variables:
+  GO_VERSION: "1.26"
+  # Immutable, commit-pinned. `latest` is never deployed.
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+
+# ---------------------------------------------------------------- test ------
+test:
+  stage: test
+  image: golang:${GO_VERSION}-bookworm
+  script:
+    - go vet ./...
+    - test -z "$(gofmt -l .)" || { echo "gofmt found unformatted files:"; gofmt -l .; exit 1; }
+    - go test -race -cover ./...
+  # Race detector needs cgo, which the release build deliberately does not use.
+  variables:
+    CGO_ENABLED: "1"
+
+# --------------------------------------------------------------- build ------
+build:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - |
+      docker build \
+        --build-arg VERSION="$CI_COMMIT_SHORT_SHA" \
+        --build-arg COMMIT="$CI_COMMIT_SHA" \
+        --build-arg SERVICE_NAME=dyson-sphere \
+        -t "$CI_REGISTRY_IMAGE:$IMAGE_TAG" .
+    - docker push "$CI_REGISTRY_IMAGE:$IMAGE_TAG"
+    # Record the digest. A tag can be moved; a digest cannot, and pinning by
+    # digest is where this should end up once the flow is proven.
+    - docker inspect --format='{{index .RepoDigests 0}}' "$CI_REGISTRY_IMAGE:$IMAGE_TAG" | tee image-digest.txt
+  artifacts:
+    paths:
+      - image-digest.txt
+    expire_in: 30 days
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# ---------------------------------------------------------------- scan ------
+# Warns rather than blocks, per 09-application-delivery.md: the gate turns
+# blocking when preprod arrives. A scanner that blocks before anyone has agreed
+# what an acceptable finding looks like just gets disabled.
+scan:
+  stage: scan
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress "$CI_REGISTRY_IMAGE:$IMAGE_TAG"
+  allow_failure: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# ------------------------------------------------------------- propose ------
+# Opens a merge request against consu-config bumping the dev image pin. It
+# proposes; it does not deploy. Argo CD is still the only thing that applies to
+# a cluster.
+#
+# Requires a CI/CD variable CONSU_CONFIG_MR_TOKEN: a project access token on
+# consu-config with `write_repository` and api scope, permitted to push
+# branches and open MRs, but NOT to push to protected main. If it is absent the
+# job skips loudly rather than failing the pipeline, so the build stays useful
+# before the token exists.
+propose:dev:
+  stage: propose
+  image: alpine:3.22
+  before_script:
+    - apk add --no-cache git curl
+  script:
+    - |
+      if [ -z "${CONSU_CONFIG_MR_TOKEN:-}" ]; then
+        echo "CONSU_CONFIG_MR_TOKEN is not set -- skipping the pin bump."
+        echo "Image is published at $CI_REGISTRY_IMAGE:$IMAGE_TAG; bump it in"
+        echo "consu-config/overlays/dev/dyson-sphere/kustomization.yaml by hand."
+        exit 0
+      fi
+    - git config --global user.email "ci@dyson-sphere"
+    - git config --global user.name "dyson-sphere CI"
+    - git clone "https://oauth2:${CONSU_CONFIG_MR_TOKEN}@gitlab.com/navetoocool/consu-config.git" cfg
+    - cd cfg
+    - BRANCH="bump/dyson-sphere-${IMAGE_TAG}"
+    - git checkout -b "$BRANCH"
+    - sed -i "s|newTag: .*|newTag: ${IMAGE_TAG}|" overlays/dev/dyson-sphere/kustomization.yaml
+    - git add overlays/dev/dyson-sphere/kustomization.yaml
+    - git commit -m "Bump dyson-sphere dev pin to ${IMAGE_TAG}"
+    - |
+      git push -o merge_request.create \
+               -o merge_request.target=main \
+               -o merge_request.title="Bump dyson-sphere dev pin to ${IMAGE_TAG}" \
+               -o merge_request.description="Automated from dyson-sphere ${CI_COMMIT_SHA}. Render diff is produced by consu-config's own pipeline." \
+               origin "$BRANCH"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

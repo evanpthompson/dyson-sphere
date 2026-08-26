@@ -114,7 +114,12 @@ propose:dev:
     - |
       curl --fail --location --silent --show-error --output /tmp/kustomize.tar.gz \
         "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
-      echo "${KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz" | sha256sum --check -
+      # `-c` on a file, not `--check` on stdin: alpine's sha256sum is BusyBox,
+      # which has no GNU long options and exits 1 on `--check`. Never ran here
+      # before -- the job early-exited on a missing token every time -- and it
+      # failed the moment consu-config's identical line first executed.
+      echo "${KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz" > /tmp/kustomize.sha256
+      sha256sum -c /tmp/kustomize.sha256
       tar --extract --gzip --file /tmp/kustomize.tar.gz --directory /usr/local/bin kustomize
     - git config --global user.email "ci@dyson-sphere"
     - git config --global user.name "dyson-sphere CI"

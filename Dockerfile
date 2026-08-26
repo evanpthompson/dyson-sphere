@@ -36,19 +36,14 @@ RUN go build \
 # distroless static: no shell, no package manager, no busybox. If someone gets
 # code execution in this container there is nothing in it to pivot with.
 # The :nonroot tag runs as uid 65532 by default.
-# TEMPORARY -- REVERT IMMEDIATELY. Deliberately vulnerable base, pushed to
-# prove the scan stage reports HIGH/CRITICAL findings. Buster is EOL and
-# carries plenty. The real base is gcr.io/distroless/static-debian12:nonroot.
-FROM debian:10-slim
+FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/server /server
 
 # Documentation only -- EXPOSE publishes nothing by itself.
 EXPOSE 8080
 
-# Numeric uid: debian has no `nonroot` account, and a numeric id needs no
-# passwd entry. Same uid distroless:nonroot uses.
-USER 65532:65532
+USER nonroot:nonroot
 
 # Exec form, so the binary is PID 1 and receives SIGTERM directly. The shell
 # form would wrap it in /bin/sh, which does not forward signals, and the

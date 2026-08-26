@@ -67,9 +67,19 @@ scan:
   image:
     name: aquasec/trivy:latest
     entrypoint: [""]
+  variables:
+    # The image is in this project's private registry, and the trivy image has
+    # no docker daemon to log into -- it pulls the manifest itself over HTTPS.
+    # Without these it authenticates as nobody and gets DENIED, which is how
+    # this job spent its first four runs reporting a scan it never performed.
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
   script:
     - trivy image --exit-code 0 --severity HIGH,CRITICAL --no-progress "$CI_REGISTRY_IMAGE:$IMAGE_TAG"
-  allow_failure: true
+  # No allow_failure. `--exit-code 0` already makes findings non-blocking, which
+  # is the "warns rather than blocks" this job wants. allow_failure on top of it
+  # also swallowed trivy *failing to run at all*, and a scan that could not run
+  # is not a pass. Findings stay green; a broken scanner now goes red.
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 

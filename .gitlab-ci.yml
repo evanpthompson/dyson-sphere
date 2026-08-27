@@ -78,7 +78,13 @@ build:
 scan:
   stage: scan
   image:
-    name: aquasec/trivy:latest
+    # Pinned, not `latest`. A `:latest` scanner runs different code next week,
+    # and the failure that matters is not a red build -- it is a scanner that
+    # quietly stops catching something, which is this project's signature bug
+    # appearing in the tool meant to find it. The kustomize download further
+    # down this same file is pinned to a version AND a sha256; the scanner had
+    # been the one unpinned thing in the pipeline.
+    name: aquasec/trivy:0.74.0
     entrypoint: [""]
   variables:
     # The image is in this project's private registry, and the trivy image has

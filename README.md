@@ -144,6 +144,12 @@ the only value a promotion job can write is one it just read from the level belo
 exactly what dev ran" is checkable by comparing two files, because a tag can be repointed at
 different bytes and a digest cannot.
 
+Every hop ends at a merge request that a Maintainer merges — `main`'s merge access is
+Maintainers and no CI identity holds that role, so no promotion can land itself. That one rule is
+the whole of what is enforced; required approvals are a Premium feature and this is a Free
+namespace, so per-hop differences in scrutiny are habit rather than control. `consu-config`'s
+`docs/render-and-commit.md` says which is which instead of implying a gate that would not fire.
+
 Only dev exists today — there is one k3s node and no hardware for more. `consu-config`'s
 `environments.conf` records that, and every promotion and deploy job refuses against an
 environment it does not mark provisioned. The manifests for preprod and prod are written and

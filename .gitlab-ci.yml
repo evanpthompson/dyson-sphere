@@ -7,8 +7,21 @@
 # job, in consu-config.
 #
 # test -> build+push image -> scan -> propose a pin bump to consu-config
+#
+# Merge requests additionally run the review gate from navetoocool/mr-review:
+# deterministic rules, each encoding a bug that shipped in these repositories.
+# The gate is not that job -- it is this project's "Pipelines must succeed"
+# setting, which is what makes a red review job actually block the merge.
+# GitLab Free has no required approval rules, so that setting is the only
+# enforcement available.
+
+include:
+  - project: navetoocool/mr-review
+    ref: main
+    file: /templates/review.yml
 
 stages:
+  - review
   - test
   - build
   - scan

@@ -44,6 +44,7 @@ I imagined.
 | Prometheus RED metrics | **Built** |
 | Distroless container image | **Built** |
 | Service pipeline — test, build, scan, propose deploy | **Built** |
+| dev → preprod → prod promotion path | **Built**, dev-only until hardware exists |
 | Generator CLI (`dyson new`) | Not started |
 | Compliance gate (`dyson verify`) | Not started |
 | Additional language templates | Not started |
@@ -125,11 +126,34 @@ refusing to start.
 test    go vet · gofmt check (fails on unformatted files) · go test -race -cover
 build   multi-stage distroless image, tagged with the commit SHA — never `latest`
 scan    trivy, HIGH and CRITICAL
-propose merge request against consu-config bumping the Kustomize image pin
+propose merge request against consu-config pinning the image by digest
 ```
 
 Image tags are immutable and commit-pinned. `latest` is never deployed, so "which build is in
 production" always has an answer.
+
+### Promotion
+
+The pin `propose` writes is the **digest** the build step recorded, not the tag it just pushed.
+Everything above dev is a copy of that string: `consu-config`'s promotion jobs read the digest
+out of the environment below and open a merge request writing it into the one above. Nothing
+rebuilds, and nothing re-resolves a tag.
+
+That makes two things true rather than merely intended. An environment cannot be skipped, because
+the only value a promotion job can write is one it just read from the level below. And "prod runs
+exactly what dev ran" is checkable by comparing two files, because a tag can be repointed at
+different bytes and a digest cannot.
+
+Only dev exists today — there is one k3s node and no hardware for more. `consu-config`'s
+`environments.conf` records that, and every promotion and deploy job refuses against an
+environment it does not mark provisioned. The manifests for preprod and prod are written and
+rendered anyway, so they are reviewed now rather than under pressure on the day a second machine
+arrives.
+
+**Evaluated and not used:** [Kargo](https://kargo.io) does exactly this, with a better model of
+promotion than a shell script. It is the right answer on a team. Here the point is to have built
+the mechanism rather than configured one — the same reason the reference service was written by
+hand before the generator that will emit it.
 
 ## What consu is
 

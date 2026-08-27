@@ -96,6 +96,14 @@ scan:
 propose:dev:
   stage: propose
   image: alpine:3.22
+  # The digest recorded by `build`, not a tag this job resolves for itself.
+  # Resolving a tag here would mean asking the registry a second time what
+  # `:$IMAGE_TAG` points at, and a tag is exactly the thing that can point
+  # somewhere else by then. Copying the artifact forward is the only spelling
+  # in which "the pin is the image we just tested" is guaranteed.
+  needs:
+    - job: build
+      artifacts: true
   variables:
     KUSTOMIZE_VERSION: "5.7.1"
     # SHA-256 of kustomize_v5.7.1_linux_amd64.tar.gz, paired with the version
@@ -121,6 +129,24 @@ propose:dev:
       echo "${KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz" > /tmp/kustomize.sha256
       sha256sum -c /tmp/kustomize.sha256
       tar --extract --gzip --file /tmp/kustomize.tar.gz --directory /usr/local/bin kustomize
+    - |
+      # The artifact is the whole basis of the pin, so its absence is a failure,
+      # not something to work around. Without it this job could still open a
+      # perfectly plausible merge request pinning a tag -- which is the outcome
+      # worth preventing, because nothing downstream would look wrong.
+      test -s image-digest.txt || {
+        echo "propose: refusing: image-digest.txt is missing or empty." >&2
+        echo "  It is produced by the build job; without it there is no digest" >&2
+        echo "  to pin, and pinning a tag instead would silently give up the" >&2
+        echo "  guarantee the whole promotion path rests on." >&2
+        exit 1
+      }
+      DIGEST="$(cut -d@ -f2 image-digest.txt)"
+      case "$DIGEST" in
+        sha256:[0-9a-f]*) ;;
+        *) echo "propose: refusing: '$DIGEST' is not a sha256 digest" >&2; exit 1 ;;
+      esac
+      echo "Pinning dev to $DIGEST (tag $IMAGE_TAG)"
     - git config --global user.email "ci@dyson-sphere"
     - git config --global user.name "dyson-sphere CI"
     - git clone "https://oauth2:${CONSU_CONFIG_MR_TOKEN}@gitlab.com/navetoocool/consu-config.git" cfg
@@ -129,10 +155,11 @@ propose:dev:
       BRANCH="bump/dyson-sphere-${IMAGE_TAG}"
       git checkout -b "$BRANCH"
       cd overlays/dev/dyson-sphere
-      kustomize edit set image "dyson-sphere=${CI_REGISTRY_IMAGE}:${IMAGE_TAG}"
+      kustomize edit set image "dyson-sphere=${CI_REGISTRY_IMAGE}@${DIGEST}"
       cd - >/dev/null
       git add overlays/dev/dyson-sphere/kustomization.yaml
-      git commit -m "Bump dyson-sphere dev pin to ${IMAGE_TAG}"
+      git commit -m "Bump dyson-sphere dev pin to ${DIGEST}" \
+                 -m "Tag ${IMAGE_TAG}, digest recorded by this commit's build job. dev is where a digest enters the system; preprod and prod only ever copy this value forward."
       git push -o merge_request.create \
                -o merge_request.target=main \
                -o merge_request.title="Bump dyson-sphere dev pin to ${IMAGE_TAG}" \

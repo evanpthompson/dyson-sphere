@@ -112,9 +112,22 @@ scan:
 # branches and open MRs, but NOT to push to protected main. If it is absent the
 # job skips loudly rather than failing the pipeline, so the build stays useful
 # before the token exists.
+#
+# allow_failure: true, deliberately, unlike scan's deliberate omission of it
+# below. The two aren't the same kind of job: scan verifies something about
+# the image that was just built, so a scanner that couldn't run is not a pass
+# and must stay a hard, visible pipeline failure. This job doesn't verify
+# anything about the image - it's best-effort automation layered on top of an
+# image that already passed test+build+scan. Without allow_failure, a
+# transient hiccup here (network, a stale MR, a missing target path) makes the
+# whole pipeline read exactly like a real test or build failure, which is a
+# worse signal than the truth: this job still shows its own red X, it just
+# doesn't misrepresent the pipeline's overall health while doing it. Found via
+# digest's identical copy of this job hitting exactly that during onboarding.
 propose:dev:
   stage: propose
   image: alpine:3.22
+  allow_failure: true
   # The digest recorded by `build`, not a tag this job resolves for itself.
   # Resolving a tag here would mean asking the registry a second time what
   # `:$IMAGE_TAG` points at, and a tag is exactly the thing that can point
@@ -172,6 +185,15 @@ propose:dev:
     - |
       cd cfg
       BRANCH="bump/dyson-sphere-${IMAGE_TAG}"
+      # Not a failure: this pipeline (or an earlier retry of the same commit)
+      # already proposed this exact bump. Checked before doing any work, not
+      # discovered via a failed push - a stale MR is "nothing to do", not
+      # "something is wrong", and collapsing the two into one exit code is
+      # exactly what let a real failure hide behind routine noise.
+      if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+        echo "propose: $BRANCH already exists on consu-config - already proposed for this build, nothing to do."
+        exit 0
+      fi
       git checkout -b "$BRANCH"
       cd overlays/dev/dyson-sphere
       kustomize edit set image "dyson-sphere=${CI_REGISTRY_IMAGE}@${DIGEST}"
